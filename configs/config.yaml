@@ -1,0 +1,26 @@
+project:
+  name: retail-anomaly-detection
+  random_seed: 42
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  # Start with 20k for a reliable laptop demo; increase to 100000 after benchmarking.
+  sample_orders: 20000
+synthetic:
+  contamination_rate: 0.02
+  random_seed: 42
+dimensionality:
+  pca_components: 0
+clustering:
+  dbscan:
+    eps: 0.7
+    min_samples: 10
+  hdbscan:
+    min_cluster_size: 20
+    min_samples: 10
+    cluster_selection_method: eom
+evaluation:
+  top_k: 100
+  anomaly_label_column: is_anomaly
+database:
+  url_env: DATABASE_URL

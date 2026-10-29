@@ -1,0 +1,1 @@
+Future extension point: expose the scoring pipeline through FastAPI after the offline pipeline and evaluation are stable. The current deliverable intentionally prioritizes a reproducible research pipeline and Streamlit demonstration.
