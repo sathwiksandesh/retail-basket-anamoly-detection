@@ -16,3 +16,5 @@ models/*
 reports/*.csv
 reports/figures/*
 !reports/figures/.gitkeep
+docs/
+node_modules/
