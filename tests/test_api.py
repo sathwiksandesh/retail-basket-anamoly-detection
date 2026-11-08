@@ -47,3 +47,31 @@ def test_invalid_parameters_are_rejected(client):
 def test_upload_reports_missing_columns(client):
     body = client.post("/api/datasets", files={"file": ("bad.csv", io.BytesIO(b"order_id,item_count\n1,3\n"), "text/csv")}).json()
     assert body["ok"] is False and "item_count" not in body["missing_columns"]
+
+
+@pytest.fixture()
+def isolated_reviews(monkeypatch, tmp_path):
+    from api import service
+    monkeypatch.setattr(service, "REVIEW_PATH", tmp_path / "decisions.json")
+    monkeypatch.setattr(service.REVIEWS, "items", {})
+
+
+def test_review_decision_roundtrip(client, isolated_reviews):
+    first = client.get("/api/baskets", params={"limit": 1}).json()["items"][0]["order_id"]
+    r = client.put(f"/api/baskets/{first}/review", json={"decision": "confirmed", "note": "checked basket"})
+    assert r.status_code == 200 and r.json()["decision"] == "confirmed"
+    assert client.get(f"/api/baskets/{first}").json()["note"] == "checked basket"
+    confirmed = client.get("/api/baskets", params={"decision": "confirmed"}).json()
+    assert [i["order_id"] for i in confirmed["items"]] == [first]
+    assert client.get("/api/summary").json()["decisions"]["confirmed"] == 1
+    client.put(f"/api/baskets/{first}/review", json={"decision": "pending", "note": ""})
+    assert client.get("/api/baskets", params={"decision": "confirmed"}).json()["total"] == 0
+    assert client.put(f"/api/baskets/{first}/review", json={"decision": "maybe"}).status_code == 422
+
+
+def test_recommendation_ignores_unusable_detectors(client):
+    m = client.get("/api/metrics").json()
+    if m["recommended"]:
+        row = next(r for r in m["models"] if r["key"] == m["recommended"])
+        assert row["flag_rate"] <= 0.30
+        assert m["recommended"] in m["recommendation"].lower().replace(" ", "_") or row["model"] in m["recommendation"]

@@ -91,9 +91,10 @@ def get_baskets(
     descending: bool = True,
     limit: int = Query(25, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    decision: Literal["any", "pending", "confirmed", "dismissed"] = "any",
 ):
     try:
-        return service.list_baskets(current_run(), model, flagged_only, min_score, q, sort, descending, limit, offset)
+        return service.list_baskets(current_run(), model, flagged_only, min_score, q, sort, descending, limit, offset, decision)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -104,6 +105,19 @@ def get_basket(order_id: int):
     if detail is None:
         raise HTTPException(404, f"Basket {order_id} is not in the current run.")
     return detail
+
+
+class ReviewRequest(BaseModel):
+    decision: Literal["confirmed", "dismissed", "pending"]
+    note: str | None = Field(None, max_length=500, description="Omit to keep the existing note.")
+
+
+@app.put("/api/baskets/{order_id}/review")
+def review_basket(order_id: int, body: ReviewRequest):
+    """Record a reviewer's decision. Decisions are saved to data/processed/review_decisions.json."""
+    if service.basket_detail(current_run(), order_id) is None:
+        raise HTTPException(404, f"Basket {order_id} is not in the current run.")
+    return service.REVIEWS.set(order_id, body.decision, body.note)
 
 
 @app.get("/api/export")

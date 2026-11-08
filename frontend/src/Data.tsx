@@ -6,7 +6,7 @@ import { dec, int, pct, useApi, useRun } from "./lib";
 const PREVIEW_COLS = ["order_id", "item_count", "unique_departments", "unique_aisles", "reorder_ratio", "order_hour_of_day", "days_since_prior_order"];
 
 export function Data({ goTo }: { goTo: (page: string) => void }) {
-  const { runKey, bump } = useRun();
+  const { runKey, bump, setRunning: setGlobalRunning } = useRun();
   const [dsKey, setDsKey] = useState(0);
   const datasets = useApi(api.datasets, [dsKey]);
   const summary = useApi(api.summary, [runKey]);
@@ -59,13 +59,13 @@ export function Data({ goTo }: { goTo: (page: string) => void }) {
 
   async function run() {
     if (!form) return;
-    setRunning(true); setElapsed(0); setError(null); setDone(null);
+    setRunning(true); setGlobalRunning(true); setElapsed(0); setError(null); setDone(null);
     try {
       const r = await api.analyze({ ...form, dataset_id: datasetId });
       setDone(`${int(r.summary.baskets)} baskets analysed in ${dec(r.summary.runtime_seconds, 1)} s. ${int(r.summary.flagged)} flagged for review (${pct(r.summary.flag_rate)}).`);
       bump();
     } catch (e) { setError((e as Error).message); }
-    setRunning(false);
+    setRunning(false); setGlobalRunning(false);
   }
 
   if (datasets.loading || !form) return datasets.error ? <Notice tone="error">{datasets.error}</Notice> : <Loading />;

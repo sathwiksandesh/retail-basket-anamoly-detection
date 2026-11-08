@@ -1,4 +1,5 @@
 export type ModelKey = "dbscan" | "hdbscan" | "isolation_forest" | "local_outlier_factor";
+export type Decision = "pending" | "confirmed" | "dismissed";
 export type DetectorChoice = "review" | ModelKey;
 
 export interface Params {
@@ -9,7 +10,9 @@ export interface Params {
 export interface Summary {
   run_id: string; dataset_name: string; created_at: string; baskets: number; flagged: number; flag_rate: number;
   runtime_seconds: number; labeled: boolean; review_score_source: string; params: Params; warning: string;
-  mean_basket_size: number; synthetic_anomalies: number | null; synthetic_caught: number | null;
+  mean_basket_size: number; synthetic_anomalies: number | null; synthetic_caught: number | null; flagged_genuine?: number;
+  decisions: { confirmed: number; dismissed: number; pending: number };
+  previous?: { run_id: string; baskets: number; flagged: number; flag_rate: number; runtime_seconds: number; synthetic_caught: number | null; recall: number | null };
 }
 export interface Overview {
   sizes: { bucket: string; normal: number; flagged: number }[];
@@ -20,15 +23,16 @@ export interface Overview {
 interface Bucket { key: number; total: number; flagged: number; flag_rate: number }
 export interface ModelRow {
   model: string; key: ModelKey; flag_rate: number;
+  flagged?: number; caught?: number; false_alarms?: number;
   precision?: number; recall?: number; f1?: number; average_precision?: number; roc_auc?: number; precision_at_k?: number; top_k?: number;
 }
-export interface Metrics { labeled: boolean; models: ModelRow[]; params: Params }
+export interface Metrics { labeled: boolean; models: ModelRow[]; params: Params; recommended: ModelKey | null; recommendation: string | null }
 export interface Sensitivity { rows: { eps: number; min_samples: number; clusters: number; noise_rate: number }[]; kdistance: number[]; eps: number }
 export interface BasketRow {
   order_id: number; user_id: number | null; item_count: number; unique_departments: number; unique_aisles: number;
   reorder_ratio: number; order_dow: number; order_hour_of_day: number; days_since_prior_order: number;
   score: number; flagged: boolean; review_status: string; reasons: string[]; is_anomaly: number | null;
-  flags: Record<ModelKey, boolean>;
+  flags: Record<ModelKey, boolean>; decision: Decision; has_note: boolean;
 }
 export interface BasketPage { total: number; items: BasketRow[]; model: string; score_label: string }
 export interface Deviation { feature: string; value: number; median: number; p05: number; p95: number; percentile: number; extremity: number }
@@ -36,6 +40,7 @@ export interface BasketDetail {
   order_id: number; user_id: number | null; order_number: number; order_dow: number; order_hour_of_day: number;
   review_status: string; review_score: number; review_rank_pct: number; reasons: string[]; is_anomaly: number | null;
   models: { key: ModelKey; name: string; flagged: boolean; score: number }[]; deviations: Deviation[];
+  decision: Decision; note: string; decided_at: string | null;
 }
 export interface DatasetInfo { id: string; name: string; rows: number; labeled: boolean; builtin: boolean }
 export interface Datasets { datasets: DatasetInfo[]; required_columns: string[]; preview: Record<string, Record<string, number>[]> }
@@ -75,8 +80,10 @@ export const api = {
   sensitivity: () => request<Sensitivity>("/api/sensitivity"),
   datasets: () => request<Datasets>("/api/datasets"),
   basket: (id: number) => request<BasketDetail>(`/api/baskets/${id}`),
-  baskets: (p: { model: DetectorChoice; flagged_only: boolean; min_score: number; q: string; sort: string; descending: boolean; limit: number; offset: number }) =>
+  baskets: (p: { model: DetectorChoice; flagged_only: boolean; min_score: number; q: string; sort: string; descending: boolean; limit: number; offset: number; decision: string }) =>
     request<BasketPage>(`/api/baskets?${qs(p)}`),
+  review: (id: number, decision: Decision, note?: string) =>
+    request<{ decision: Decision; note: string }>(`/api/baskets/${id}/review`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(note === undefined ? { decision } : { decision, note }) }),
   upload: (file: File) => { const f = new FormData(); f.append("file", file); return request<UploadResult>("/api/datasets", { method: "POST", body: f }); },
   analyze: (body: AnalyzeRequest) =>
     request<{ summary: Summary; metrics: Metrics }>("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),

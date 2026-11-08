@@ -1,16 +1,19 @@
-import { api } from "./api";
-import { Loading, Notice } from "./components";
-import { DETECTOR_LABELS, FEATURE_LABELS, FLAG, MODEL_COLORS, dec, int, pct, useApi } from "./lib";
+import { useEffect, useState } from "react";
+import { api, type BasketDetail, type Decision } from "./api";
+import { DecisionBadge, Loading, Notice, ghostBtn } from "./components";
+import { DECISION_LABELS, DETECTOR_LABELS, FEATURE_LABELS, FLAG, MODEL_COLORS, dec, int, pct, useApi } from "./lib";
 
 const share = (p: number) => `${Math.max(0.1, (p >= 0.5 ? 1 - p : p) * 100).toFixed(1)}%`;
 
 /** One basket, printed like a till receipt: why it was flagged, how unusual each feature is, and what each detector said. */
-export function Receipt({ orderId, onClose }: { orderId: number; onClose: () => void }) {
-  const { data: d, error, loading } = useApi(() => api.basket(orderId), [orderId]);
-  if (loading) return <Loading label="Printing basket" />;
+export function Receipt({ orderId, onClose, onChanged }: { orderId: number; onClose: () => void; onChanged: () => void }) {
+  const [version, setVersion] = useState(0);
+  const { data: d, error, loading } = useApi(() => api.basket(orderId), [orderId, version]);
+  if (loading && !d) return <Loading label="Printing basket" />;
   if (error || !d) return <Notice tone="error">{error ?? "Basket not found."}</Notice>;
   const flagged = d.review_status === "Needs Review";
   return (
+    <>
     <div className="receipt receipt-enter mb-3 px-5 pb-5 pt-4" key={d.order_id}>
       <div className="flex items-start justify-between">
         <div>
@@ -55,6 +58,46 @@ export function Receipt({ orderId, onClose }: { orderId: number; onClose: () => 
           <span className="num">{m.flagged ? "flagged" : "normal"} {dec(m.score, 2)}</span>
         </div>
       ))}
+    </div>
+    <ReviewPanel detail={d} onSaved={() => { setVersion((v) => v + 1); onChanged(); }} />
+    </>
+  );
+}
+
+/** Reviewer workflow: decision plus an optional note, saved on the server. */
+function ReviewPanel({ detail, onSaved }: { detail: BasketDetail; onSaved: () => void }) {
+  const [note, setNote] = useState(detail.note);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { setNote(detail.note); setError(null); }, [detail.order_id, detail.note]);
+
+  async function save(decision: Decision) {
+    setBusy(true); setError(null);
+    try { await api.review(detail.order_id, decision, note); onSaved(); }
+    catch (e) { setError((e as Error).message); }
+    setBusy(false);
+  }
+  const dirty = note.trim() !== detail.note.trim();
+  return (
+    <div className="mt-6 border-t border-ink pt-3 text-sm">
+      <h3 className="font-cond text-[17px] font-semibold">Review</h3>
+      <p className="mt-1 flex items-center gap-2">Decision: <DecisionBadge decision={detail.decision} /></p>
+      {detail.decided_at && <p className="text-[13px] text-graphite">Saved {new Date(detail.decided_at).toLocaleString()}</p>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button className={ghostBtn} disabled={busy || detail.decision === "confirmed"} onClick={() => void save("confirmed")}>{DECISION_LABELS.confirmed}</button>
+        <button className={ghostBtn} disabled={busy || detail.decision === "dismissed"} onClick={() => void save("dismissed")}>{DECISION_LABELS.dismissed}</button>
+        {detail.decision !== "pending" && <button className={ghostBtn} disabled={busy} onClick={() => void save("pending")}>Undo decision</button>}
+      </div>
+      <label className="mt-3 block">
+        <span className="font-medium">Note</span>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={3}
+          className="mt-1 w-full border border-rule bg-paper px-2 py-1.5" placeholder="What did you check, and what did you find?" />
+      </label>
+      <div className="mt-1 flex items-center gap-3">
+        <button className={ghostBtn} disabled={busy || !dirty} onClick={() => void save(detail.decision)}>Save note</button>
+        <span className="text-[13px] text-graphite num">{note.length}/500</span>
+      </div>
+      {error && <div className="mt-2"><Notice tone="error">{error}</Notice></div>}
     </div>
   );
 }

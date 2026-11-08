@@ -12,7 +12,7 @@ export const pct = (n: number | null | undefined, d = 1) => (n == null ? "-" : `
 export const hour = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
 /** Bumped after every analysis so every page refetches. */
-export const RunContext = createContext<{ runKey: number; bump: () => void }>({ runKey: 0, bump: () => {} });
+export const RunContext = createContext<{ runKey: number; bump: () => void; running: boolean; setRunning: (v: boolean) => void }>({ runKey: 0, bump: () => {}, running: false, setRunning: () => {} });
 export const useRun = () => useContext(RunContext);
 
 export function useApi<T>(load: () => Promise<T>, deps: unknown[]) {
@@ -37,3 +37,5 @@ export const FEATURE_LABELS: Record<string, string> = {
 export const DETECTOR_LABELS: Record<string, string> = {
   review: "Combined review priority", hdbscan: "HDBSCAN", dbscan: "DBSCAN", isolation_forest: "Isolation Forest", local_outlier_factor: "Local Outlier Factor",
 };
+
+export const DECISION_LABELS = { pending: "Awaiting review", confirmed: "Confirmed anomaly", dismissed: "Dismissed as normal" } as const;

@@ -1,20 +1,39 @@
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
 .venv/
 env/
+
+# Environment variables
 .env
+
+# Testing and cache
 .pytest_cache/
 .DS_Store
+
+# Data
 data/raw/*
 !data/raw/.gitkeep
+
 data/processed/*
 !data/processed/.gitkeep
+
 data/synthetic/*
 !data/synthetic/.gitkeep
+
+# Models
 models/*
 !models/.gitkeep
+
+# Reports
 reports/*.csv
 reports/figures/*
 !reports/figures/.gitkeep
-docs/
-node_modules/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

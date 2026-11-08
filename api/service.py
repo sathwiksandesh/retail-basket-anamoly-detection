@@ -105,6 +105,7 @@ class Store:
         self.datasets: dict[str, Dataset] = {}
         self.runs: dict[str, Run] = {}
         self.current: str | None = None
+        self.previous: str | None = None
         self.lock = threading.Lock()          # one analysis at a time
         self._cache_lock = threading.Lock()
 
@@ -114,6 +115,44 @@ class Store:
 
 
 STORE = Store()
+
+REVIEW_PATH = ROOT / "data" / "processed" / "review_decisions.json"
+DECISIONS = ("confirmed", "dismissed", "pending")
+
+
+class Reviews:
+    """Reviewer decisions and notes, saved to a JSON file so they survive restarts and re-runs."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.items: dict[str, dict] = {}
+        if REVIEW_PATH.exists():
+            try:
+                self.items = json.loads(REVIEW_PATH.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                self.items = {}
+
+    def get(self, order_id: int) -> dict:
+        return self.items.get(str(order_id), {"decision": "pending", "note": ""})
+
+    def set(self, order_id: int, decision: str, note: str | None) -> dict:
+        if decision not in DECISIONS:
+            raise ValueError(f"Decision must be one of {', '.join(DECISIONS)}.")
+        note = self.get(order_id).get("note", "") if note is None else note.strip()[:500]
+        with self._lock:
+            if decision == "pending" and not note:
+                self.items.pop(str(order_id), None)
+            else:
+                self.items[str(order_id)] = {"decision": decision, "note": note,
+                                             "updated_at": datetime.now(timezone.utc).isoformat()}
+            REVIEW_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = REVIEW_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.items, indent=1), encoding="utf-8")
+            tmp.replace(REVIEW_PATH)
+        return self.get(order_id)
+
+
+REVIEWS = Reviews()
 
 
 def _base_config() -> dict:
@@ -269,6 +308,7 @@ def run_analysis(params: dict) -> Run:
         labeled=labeled, review_fraction=fraction,
     )
     STORE.runs[run.id] = run
+    STORE.previous = STORE.current
     STORE.current = run.id
     return run
 
@@ -316,21 +356,59 @@ def summary(run: Run) -> dict:
         injected = df["is_anomaly"] == 1
         out["synthetic_anomalies"] = int(injected.sum())
         out["synthetic_caught"] = int((injected & flagged).sum())
+        out["flagged_genuine"] = int(flagged.sum() - out["synthetic_caught"])
+    queue_ids = set(df.loc[flagged, "order_id"].astype(int).astype(str))
+    counts = {"confirmed": 0, "dismissed": 0}
+    for key, rec in REVIEWS.items.items():
+        if key in queue_ids and rec["decision"] in counts:
+            counts[rec["decision"]] += 1
+    out["decisions"] = {**counts, "pending": int(flagged.sum()) - sum(counts.values())}
+    prev = STORE.runs.get(STORE.previous) if STORE.previous and run.id == STORE.current else None
+    if prev is not None and prev.id != run.id:
+        pf = prev.scored["review_status"] == "Needs Review"
+        out["previous"] = {
+            "run_id": prev.id, "baskets": int(len(prev.scored)), "flagged": int(pf.sum()), "flag_rate": float(pf.mean()),
+            "runtime_seconds": prev.runtime_seconds,
+            "synthetic_caught": int(((prev.scored["is_anomaly"] == 1) & pf).sum()) if prev.labeled else None,
+            "recall": float(((prev.scored["is_anomaly"] == 1) & pf).sum() / max(1, (prev.scored["is_anomaly"] == 1).sum())) if prev.labeled else None,
+        }
     return out
 
 
 def metrics_view(run: Run) -> dict:
     df = run.scored
+    injected = df["is_anomaly"] == 1
     rows = []
-    if run.metrics is not None:
-        for rec in run.metrics.to_dict("records"):
-            key = next(k for k, v in MODELS.items() if v == rec["model"])
-            rows.append({**{k: clean(v) for k, v in rec.items()}, "key": key,
-                         "flag_rate": float(df[f"{key}_label"].mean())})
-    else:
-        for key, name in MODELS.items():
-            rows.append({"model": name, "key": key, "flag_rate": float(df[f"{key}_label"].mean())})
-    return {"labeled": run.labeled, "models": rows, "params": run.params}
+    for key, name in MODELS.items():
+        flagged = df[f"{key}_label"] == 1
+        base = {"model": name, "key": key, "flag_rate": float(flagged.mean()), "flagged": int(flagged.sum())}
+        if run.metrics is not None:
+            rec = run.metrics[run.metrics["model"] == name].iloc[0].to_dict()
+            caught = int((flagged & injected).sum())
+            base.update({k: clean(v) for k, v in rec.items() if k != "model"})
+            base.update(caught=caught, false_alarms=int(flagged.sum()) - caught)
+        rows.append(base)
+    out = {"labeled": run.labeled, "models": rows, "params": run.params, "recommended": None, "recommendation": None}
+    if run.metrics is None:
+        return out
+    usable = [r for r in rows if r["flag_rate"] <= 0.30]
+    excluded = [r["model"] for r in rows if r["flag_rate"] > 0.30]
+    if usable:
+        best = max(usable, key=lambda r: r["f1"] or 0)
+        top_auc = max(rows, key=lambda r: r["roc_auc"] or 0)
+        total = int(injected.sum())
+        text = (f"{best['model']} has the best F1 ({best['f1']:.2f}) among detectors with a queue small enough to review. "
+                f"It flags {best['flagged']:,} baskets and catches {best['caught']:,} of {total:,} injected anomalies "
+                f"(precision {best['precision']:.2f}, recall {best['recall']:.2f}), leaving {best['false_alarms']:,} flags that are not injected anomalies. ")
+        if top_auc["key"] != best["key"]:
+            text += (f"{top_auc['model']} has the higher ROC-AUC ({top_auc['roc_auc']:.2f}), but ROC-AUC scores the ranking of every basket, "
+                     "not the fixed queue a reviewer works through, so it is not used to pick. ")
+        if excluded:
+            one = len(excluded) == 1
+            text += f"{', '.join(excluded)} {'flags' if one else 'flag'} more than 30% of baskets and {'is' if one else 'are'} excluded. "
+        text += "These figures rely on synthetic labels; reviewer decisions give the real check."
+        out.update(recommended=best["key"], recommendation=text)
+    return out
 
 
 def _score_columns(model: str) -> tuple[str, str]:
@@ -342,7 +420,7 @@ def _score_columns(model: str) -> tuple[str, str]:
 
 
 def list_baskets(run: Run, model: str, flagged_only: bool, min_score: float, query: str | None,
-                 sort: str, descending: bool, limit: int, offset: int) -> dict:
+                 sort: str, descending: bool, limit: int, offset: int, decision: str = "any") -> dict:
     df = run.scored
     score_col, flag_col = _score_columns(model)
     if model == "review":
@@ -357,6 +435,12 @@ def list_baskets(run: Run, model: str, flagged_only: bool, min_score: float, que
         digits = "".join(ch for ch in query if ch.isdigit())
         if digits:
             mask &= df["order_id"].astype(str).str.contains(digits) | df["user_id"].astype(str).eq(digits)
+    if decision != "any":
+        if decision not in DECISIONS:
+            raise ValueError(f"Unknown decision filter {decision!r}")
+        have = {int(k): v["decision"] for k, v in REVIEWS.items.items()}
+        current = df["order_id"].astype(int).map(lambda i: have.get(i, "pending"))
+        mask &= current == decision
     sortable = {"score": score_col, "item_count": "item_count", "unique_departments": "unique_departments",
                 "reorder_ratio": "reorder_ratio", "days_since_prior_order": "days_since_prior_order",
                 "order_id": "order_id"}
@@ -379,6 +463,8 @@ def list_baskets(run: Run, model: str, flagged_only: bool, min_score: float, que
             "reasons": split_reasons(row.get("review_reasons")),
             "is_anomaly": clean(row["is_anomaly"]) if run.labeled else None,
             "flags": {k: bool(row[f"{k}_label"]) for k in MODELS},
+            "decision": REVIEWS.get(int(row["order_id"]))["decision"],
+            "has_note": bool(REVIEWS.get(int(row["order_id"])).get("note")),
         })
     return {"total": total, "items": items, "model": model, "score_label": "Review priority" if model == "review" else MODELS[model]}
 
@@ -412,6 +498,8 @@ def basket_detail(run: Run, order_id: int) -> dict | None:
                    for k, v in MODELS.items()],
         "deviations": deviations,
         "features": {c: clean(row[c]) for c in FEATURE_COLUMNS if c in df.columns},
+        "decision": REVIEWS.get(order_id)["decision"], "note": REVIEWS.get(order_id).get("note", ""),
+        "decided_at": REVIEWS.get(order_id).get("updated_at"),
     }
 
 
@@ -464,4 +552,7 @@ def export_csv(run: Run, status: str | None) -> str:
                         "reorder_ratio", "order_dow", "order_hour_of_day", "days_since_prior_order", "review_score",
                         "review_rank_pct", "review_status", "review_reasons", "hdbscan_label", "dbscan_label",
                         "isolation_forest_label", "local_outlier_factor_label", "is_anomaly"] if c in df.columns]
-    return df.sort_values("review_score", ascending=False)[cols].to_csv(index=False)
+    out = df.sort_values("review_score", ascending=False)[cols].copy()
+    out["reviewer_decision"] = out["order_id"].astype(int).map(lambda i: REVIEWS.get(i)["decision"])
+    out["reviewer_note"] = out["order_id"].astype(int).map(lambda i: REVIEWS.get(i).get("note", ""))
+    return out.to_csv(index=False)

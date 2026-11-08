@@ -98,3 +98,18 @@ See `docs/PROJECT_REVIEW_GUIDE.md` for the 10-slide PPT outline, demo script, li
 - scikit-learn DBSCAN: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html
 - scikit-learn HDBSCAN: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.HDBSCAN.html
 - HDBSCAN outlier detection / GLOSH: https://hdbscan.readthedocs.io/en/latest/outlier_detection.html
+
+## 8. React frontend and FastAPI (optional)
+A React + TypeScript dashboard (Vite, Tailwind CSS, Recharts) on top of a FastAPI service. Streamlit still works.
+
+```powershell
+# terminal 1, project root, venv active
+pip install -r requirements.txt
+uvicorn api.main:app --reload --port 8000
+
+# terminal 2
+cd frontend
+npm install
+npm run dev        # http://localhost:5173
+```
+Pages: Overview, Flagged baskets (with a receipt-style detail view), Model comparison, Data and runs (upload, settings, Analyze baskets). The dev server proxies `/api` to port 8000. API tests: `pytest -q tests/test_api.py`.
