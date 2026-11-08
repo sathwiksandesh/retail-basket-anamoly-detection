@@ -25,12 +25,24 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Retail Basket Anomaly API", version="1.0.0", lifespan=lifespan)
+
+# CORS must be added before any routes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],  # allow all origins in production (Vercel)
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+def root():
+    return {
+        "message": "Retail Basket Anomaly Detection API is running!",
+        "status": "success",
+        "project": "Retail Basket Anomaly Detection",
+    }
 
 
 class AnalyzeRequest(BaseModel):

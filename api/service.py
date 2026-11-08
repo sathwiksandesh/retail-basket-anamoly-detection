@@ -116,7 +116,10 @@ class Store:
 
 STORE = Store()
 
-REVIEW_PATH = ROOT / "data" / "processed" / "review_decisions.json"
+import os as _os
+# On Vercel (read-only FS), fall back to /tmp so review decisions can be written.
+_REVIEW_DIR = Path(_os.environ.get("REVIEW_DIR", "")) or ROOT / "data" / "processed"
+REVIEW_PATH = (Path("/tmp") / "review_decisions.json") if not _REVIEW_DIR.exists() else _REVIEW_DIR / "review_decisions.json"
 DECISIONS = ("confirmed", "dismissed", "pending")
 
 
