@@ -6,6 +6,14 @@ Run from the project root so ``src`` is importable:
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ensure project root is on sys.path
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -37,6 +45,7 @@ app.add_middleware(
 
 
 @app.get("/")
+@app.get("/api")
 def root():
     return {
         "message": "Retail Basket Anomaly Detection API is running!",

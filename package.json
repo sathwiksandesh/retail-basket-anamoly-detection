@@ -1,0 +1,7 @@
+{
+  "name": "retail-basket-anomaly-detection",
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build"
+  }
+}

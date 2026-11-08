@@ -1,6 +1,3 @@
-# Minimal API-only dependencies for Vercel serverless deployment.
-# Heavy packages (streamlit, plotly, matplotlib, psycopg, sqlalchemy) are
-# excluded — they are only needed for the local dashboard and database scripts.
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
