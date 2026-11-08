@@ -21,6 +21,9 @@ data/raw/*
 
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/basket_features.csv
+!data/processed/anomaly_results.csv
+!data/processed/pipeline_summary.json
 
 data/synthetic/*
 !data/synthetic/.gitkeep
@@ -31,6 +34,8 @@ models/*
 
 # Reports
 reports/*.csv
+!reports/evaluation_results.csv
+!reports/dbscan_sensitivity.csv
 reports/figures/*
 !reports/figures/.gitkeep
 

@@ -89,7 +89,7 @@ class Run:
     dataset_id: str
     dataset_name: str
     scored: pd.DataFrame
-    X: np.ndarray
+    X: np.ndarray | None
     metrics: pd.DataFrame | None
     params: dict
     runtime_seconds: float
@@ -170,6 +170,12 @@ def _matrix(frame: pd.DataFrame, label_col: str = "is_anomaly", pca_components: 
     return X
 
 
+def _ensure_X(run: Run) -> np.ndarray:
+    if run.X is None:
+        run.X = _matrix(run.scored)
+    return run.X
+
+
 def bootstrap() -> None:
     """Register the bundled sample and load the last pipeline run from disk, if present."""
     features_path = ROOT / "data" / "processed" / "basket_features.csv"
@@ -198,7 +204,7 @@ def bootstrap() -> None:
         dataset_id=SAMPLE_ID,
         dataset_name="Instacart sample (bundled)",
         scored=scored,
-        X=_matrix(scored),
+        X=None,  # Loaded lazily to ensure sub-second startup on serverless
         metrics=metrics,
         params=pipeline_params,
         runtime_seconds=runtime,
@@ -319,8 +325,9 @@ def run_analysis(params: dict) -> Run:
 def get_sensitivity(run: Run) -> list[dict]:
     with STORE._cache_lock:
         if run.sensitivity is None:
+            X = _ensure_X(run)
             mask = run.scored["is_anomaly"].to_numpy() == 0
-            X_ref = run.X[mask]
+            X_ref = X[mask]
             base_eps = float(run.params["dbscan_eps"])
             min_samples = int(run.params["dbscan_min_samples"])
             rows = []
@@ -336,7 +343,8 @@ def get_sensitivity(run: Run) -> list[dict]:
 def get_kdistance(run: Run, points: int = 250) -> list[float]:
     with STORE._cache_lock:
         if run.kdistance is None:
-            curve = k_distance_curve(run.X, k=10)
+            X = _ensure_X(run)
+            curve = k_distance_curve(X, k=10)
             idx = np.linspace(0, len(curve) - 1, min(points, len(curve))).astype(int)
             run.kdistance = [round(float(curve[i]), 4) for i in idx]
         return run.kdistance

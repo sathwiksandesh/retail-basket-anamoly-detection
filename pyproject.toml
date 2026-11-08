@@ -32,5 +32,8 @@ dependencies = [
 pythonpath = ["."]
 testpaths = ["tests"]
 
+[tool.vercel]
+entrypoint = "main:app"
+
 [tool.setuptools.packages.find]
 include = ["src*"]

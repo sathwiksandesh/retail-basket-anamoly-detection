@@ -1,0 +1,10 @@
+{
+  "orders_sampled": 20000,
+  "synthetic_anomalies": 400,
+  "synthetic_rate": 0.02,
+  "features_file": "data\\processed\\basket_features.csv",
+  "results_file": "data\\processed\\anomaly_results.csv",
+  "metrics_file": "reports\\evaluation_results.csv",
+  "runtime_seconds": 19.8,
+  "warning": "Metrics against injected synthetic labels assess the test harness only; real anomaly labels are unavailable. Instacart has no prices, store IDs, or calendar dates."
+}
