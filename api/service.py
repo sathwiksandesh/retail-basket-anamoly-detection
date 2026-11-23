@@ -117,9 +117,15 @@ class Store:
 STORE = Store()
 
 import os as _os
-# On Vercel (read-only FS), fall back to /tmp so review decisions can be written.
-_REVIEW_DIR = Path(_os.environ.get("REVIEW_DIR", "")) or ROOT / "data" / "processed"
-REVIEW_PATH = (Path("/tmp") / "review_decisions.json") if not _REVIEW_DIR.exists() else _REVIEW_DIR / "review_decisions.json"
+# Vercel sets VERCEL=1 at runtime; its bundle FS is read-only, so use /tmp.
+_ON_VERCEL = bool(_os.environ.get("VERCEL"))
+REVIEW_PATH = (
+    Path(_os.environ["REVIEW_DIR"]) / "review_decisions.json"
+    if "REVIEW_DIR" in _os.environ
+    else Path("/tmp") / "review_decisions.json"
+    if _ON_VERCEL
+    else ROOT / "data" / "processed" / "review_decisions.json"
+)
 DECISIONS = ("confirmed", "dismissed", "pending")
 
 
